@@ -1,0 +1,188 @@
+---
+title: "CodeBook for Course_03_ProjectAssignment_01"
+author: "F. Garcia"
+date: "Thursday, April 23, 2015"
+output: html_document
+---
+
+This document describes the steps followed and the source code used to get and clean the data described in the Project for the Getting and Cleaning Data Course, as well as the variables used on the analysis output.
+
+The analysis is based on the data obtained from Samsung wearables. The goal is to obtain a tidy data set.
+
+
+## Data
+The data is provided in the following url (https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip). 
+It contains two sets of data: train and test.   
+Each set of data contains a list of 561 values. 
+The values have been measured doing 6 different. 
+The activities have been performed by 30 different subjects. 
+
+
+## Variables used
+The tidy data contains the following variables: 
+
+ 1. **subject**: ID of the subject for the observation: 
+ 
+        - 1..30
+        
+ 2. **activity**: Factor describing the activity: 
+ 
+        - WALKING, 
+        - WALKING_UPSTAIRS, 
+        - WALKING_DOWNSTAIRS, 
+        - SITTING, 
+        - STANDING, 
+        - LAYING
+        
+ 3. **signal**: Parameter measured:
+ 
+        - "fBodyAcc"            
+        - "fBodyAccJerk"         
+        - "fBodyAccMag"          
+        - "fBodyBodyAccJerkMag"  
+        - "fBodyBodyGyroJerkMag"  
+        - "fBodyBodyGyroMag"    
+        - "fBodyGyro"            
+        - "tBodyAcc"             
+        - "tBodyAccJerk"         
+        - "tBodyAccJerkMag"      
+        - "tBodyAccMag"          
+        - "tBodyGyro"           
+        - "tBodyGyroJerk"        
+        - "tBodyGyroJerkMag"     
+        - "tBodyGyroMag"         
+        - "tGravityAcc"          
+        - "tGravityAccMag" 
+        
+ 4. **axis**: For the 3-dimensional signals the axis where the measurement was performed:  
+ 
+        - X  
+        - Y  
+        - Z  
+              
+ 5. **mean**: Mean value of the mean measurement  
+ 
+ 6. **std**: Mean value of the std measurement  
+ 
+## Transformations
+Following the detailed steps to obtain a reproducible transformation are explained.
+
+### Load the data
+First of all the data is downloaded and extracted.
+
+```{r}
+## Required libraries
+suppressPackageStartupMessages(library(dplyr, quietly=TRUE))
+library(tidyr)
+
+## Get the source data and extract it
+if (!file.exists("UCI HAR Dataset"))
+{
+        download.file(url = "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip", destfile = "data.zip")
+        unzip("data.zip")
+}
+
+```
+
+### Merge the data from Test and Training
+
+The data is loaded into memory and 3 different datasets are created. However the 3 of them contain the merged data from train and test.
+
+```{r}
+subject_train <- read.table(".\\UCI HAR Dataset\\train\\subject_train.txt", header=FALSE)
+y_train <- read.table(".\\UCI HAR Dataset\\train\\y_train.txt", header=FALSE)
+x_train <- read.table(".\\UCI HAR Dataset\\train\\X_train.txt", header=FALSE)
+
+subject_test <- read.table(".\\UCI HAR Dataset\\test\\subject_test.txt", header=FALSE)
+y_test <- read.table(".\\UCI HAR Dataset\\test\\y_test.txt", header=FALSE)
+x_test <- read.table(".\\UCI HAR Dataset\\test\\X_test.txt", header=FALSE)
+
+dataset_subject <- bind_rows(subject_train, subject_test)
+dataset_y <- bind_rows(y_train, y_test)
+dataset_x <- bind_rows(x_train, x_test)
+
+```
+
+```{r}
+str(dataset_subject)
+str(dataset_y)
+str(dataset_x)
+
+``` 
+
+### Extract Mean and deviation for each measurement
+The variable names have to be loaded and labeled.  
+Once they are labeled we can proceed to filter the different variable names in search for what we want to *select*.  
+In our case we will select the features that contain "mean()" and "std()" in the name.
+```{r}
+features <- read.table(".\\UCI HAR Dataset\\features.txt", header=FALSE)
+
+names(features) <- c("id","name")
+names(dataset_subject) <- "subject"
+
+names(dataset_x) <- as.character(features$name)
+
+dataset_x <- dataset_x[,grepl("mean()", colnames(dataset_x), fixed=TRUE) | grepl("std()", colnames(dataset_x), fixed=TRUE)]
+```
+
+### Use descriptive activity Names for the data set
+The description given in the "activity_labels.txt" file is self explanatory for every feature.  
+The dataset_y is labeled. It only contains the activity, previously the id and now the name extracted from activities.
+
+```{r}
+activities <- read.table(".\\UCI HAR Dataset\\activity_labels.txt", header=FALSE)
+
+names(activities) <- c("id","name")
+
+names(dataset_y) <- "activity"
+
+dataset_y$activity <- activities[dataset_y$activity,]$name
+
+str(activities)
+
+```
+
+### Label the data set with descriptive variable names.
+Every single dataset has already been labeled. Let´s bind them together into a single one labeled.
+
+```{r}
+dataset <- bind_cols(dataset_subject, dataset_y, dataset_x)
+
+```
+
+### Create an independent tidy data set
+To create a tidy dataset we are going to carry out the following transformations:  
+        1. Replace the parenthesis to avoid having them later inside the variable name.  
+        2. Group the dataset by subject and then activity  
+        3. Sort by subject and then activity  
+        4. Compute the mean for every variable  
+        5. Convert all the variables into a value of "signal"  
+        6. From "signal"" extract the name of the signal, the type of measurement (mean, std) and the axis. When no Axis exists NA will be specified  
+        7. Spread the value into 2 values: mean() and std()  
+
+
+```{r}
+dataset <- tbl_df(dataset)
+names(dataset) <- gsub(pattern = "\\(\\)", replacement = "", names(dataset))
+
+tidy_ds <- dataset %>%
+        group_by(subject, activity) %>%
+        arrange(subject, activity) %>%
+        summarise_each(funs(mean)) %>%
+        gather(signal, value, -subject, -activity) %>%
+        separate(signal, into=c("signal", "variable", "axis"), sep="\\-", extra="drop") %>%
+        spread(variable, value)
+```
+
+This is the how our data looks like:
+```{r, echo=FALSE}
+tidy_ds
+```
+
+### Save the data
+Finally the data is exported to a text file called "analysis_output.txt". This file can be found in this repository as well.
+
+```{r}
+write.table(tidy_ds, file="analysis_output.txt", row.name=FALSE)
+```
+
